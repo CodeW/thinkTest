@@ -9,13 +9,18 @@ class Model
     const EXISTS_VALIDATE  =  0;	// 表单存在字段则验证
     const VALUE_VALIDATE   =  2;	// 表单值不为空则验证
 
+    private $_extModel = null;		// 当前使用的扩展模型
 	protected $name = '';			// 模型名称
+	
     protected $connection = '';		// 数据库连接配置
 	protected $dbName = '';			// 数据库名称
+    protected $tablePrefix = '';	// 数据表前缀
+    protected $tableName = '';		// 数据表名（不包含表前缀）
     protected $trueTableName = '';	// 实际数据表名（包含表前缀）
     protected $fields = array();	// 字段信息
     protected $pk = 'id';			// 主键名称
     protected $db = null;			// 当前数据库操作对象
+    protected $error = '';			// 最近错误信息
 	
     protected $data = array();	// 数据信息
 	
@@ -298,6 +303,36 @@ class Model
         }
 		
         return $this->_extModel;
+    }
+	
+    /**
+     * 设置数据对象值
+     * @access public
+     * @param mixed $data 数据
+     * @return Model
+     */
+    public function data($data = '')
+	{
+        if ('' === $data && !empty($this->data))
+		{
+            return $this->data;
+        }
+		
+        if (is_object($data))
+		{
+            $data = get_object_vars($data);
+        }
+		elseif (is_string($data))
+		{
+            parse_str($data,$data);
+        }
+		elseif (!is_array($data))
+		{
+            throw_exception(L('_DATA_TYPE_INVALID_'));
+        }
+		
+        $this->data = $data;
+        return $this;
     }
 	
     /**
@@ -849,6 +884,294 @@ class Model
     protected function _after_delete($data,$options) {}
 	
     /**
+     * SQL查询
+     * @access public
+     * @param string $sql  SQL指令
+     * @param mixed $parse  是否需要解析SQL
+     * @return mixed
+     */
+    public function query($sql, $parse = false)
+	{
+        if (!is_bool($parse) && !is_array($parse))
+		{
+            $parse = func_get_args();
+            array_shift($parse);
+        }
+		
+        $sql = $this->parseSql($sql, $parse);
+        return $this->db->query($sql);
+    }
+	
+    /**
+     * 执行SQL语句
+     * @access public
+     * @param string $sql  SQL指令
+     * @param mixed $parse  是否需要解析SQL
+     * @return false | integer
+     */
+    public function execute($sql, $parse = false)
+	{
+        if (!is_bool($parse) && !is_array($parse))
+		{
+            $parse = func_get_args();
+            array_shift($parse);
+        }
+        $sql = $this->parseSql($sql, $parse);
+        return $this->db->execute($sql);
+    }
+	
+    /**
+     * 解析SQL语句
+     * @access public
+     * @param string $sql  SQL指令
+     * @param boolean $parse  是否需要解析SQL
+     * @return string
+     */
+    protected function parseSql($sql, $parse)
+	{
+        if (true === $parse)
+		{	// 表达式过滤
+            $options = $this->_parseOptions();
+            $sql = $this->db->parseSql($sql, $options);
+        }
+		elseif (is_array($parse))
+		{
+			// SQL预处理
+            $sql  = vsprintf($sql, $parse);
+        }
+		else
+		{
+            $sql = strtr($sql, array('__TABLE__'=>$this->getTableName(), '__PREFIX__'=>C('DB_PREFIX')));
+        }
+        $this->db->setModel($this->name);
+        
+		return $sql;
+    }
+	
+	/**
+     * 启动事务
+     * @access public
+     * @return void
+     */
+    public function startTrans()
+	{
+        $this->commit();
+        $this->db->startTrans();
+        return ;
+    }
+
+    /**
+     * 提交事务
+     * @access public
+     * @return boolean
+     */
+    public function commit()
+	{
+        return $this->db->commit();
+    }
+
+    /**
+     * 事务回滚
+     * @access public
+     * @return boolean
+     */
+    public function rollback()
+	{
+        return $this->db->rollback();
+    }
+	
+    /**
+     * 返回模型的错误信息
+     * @access public
+     * @return string
+     */
+    public function getError()
+	{
+        return $this->error;
+    }
+
+    /**
+     * 返回数据库的错误信息
+     * @access public
+     * @return string
+     */
+    public function getDbError()
+	{
+        return $this->db->getError();
+    }
+
+    /**
+     * 返回最后插入的ID
+     * @access public
+     * @return string
+     */
+    public function getLastInsID()
+	{
+        return $this->db->getLastInsID();
+    }
+
+    /**
+     * 返回最后执行的sql语句
+     * @access public
+     * @return string
+     */
+    public function getLastSql()
+	{
+        return $this->db->getLastSql($this->name);
+    }
+    // 鉴于getLastSql比较常用 增加_sql 别名
+    public function _sql(){
+        return $this->getLastSql();
+    }
+
+	/**
+     * 获取主键名称
+     * @access public
+     * @return string
+     */
+    public function getPk()
+	{
+        return isset($this->fields['_pk']) ? $this->fields['_pk'] : $this->pk;
+    }
+	
+    /**
+     * 获取数据表字段信息（不带字段类型）
+     * @access public
+     * @return array
+     */
+    public function getDbFields()
+	{
+		// 动态指定表名
+        if (isset($this->options['table']))
+		{
+            $fields = $this->db->getFields($this->options['table']);
+            return $fields ? array_keys($fields) : false;
+        }
+		
+        if ($this->fields)
+		{
+            $fields = $this->fields;
+            unset($fields['_autoinc'], $fields['_pk'], $fields['_type'], $fields['_version']);
+            return $fields;
+        }
+		
+        return false;
+    }
+	
+//{{{ START return $this	--	链操作时使用 
+    /**
+     * 查询SQL组装 join
+     * @access public
+     * @param mixed $join
+     * @return Model
+     */
+    public function join($join)
+	{
+        if (is_array($join))
+		{
+            $this->options['join'] = $join;
+        }
+		elseif (!empty($join))
+		{
+            $this->options['join'][] = $join;
+        }
+		
+        return $this;
+    }
+	
+    /**
+     * 查询SQL组装 union
+     * @access public
+     * @param mixed $union
+     * @param boolean $all
+     * @return Model
+     */
+    public function union($union, $all = false)
+	{
+        if(empty($union))
+			return $this;
+        
+		if ($all)
+		{
+            $this->options['union']['_all'] = true;
+        }
+		
+        if (is_object($union))
+		{
+            $union = get_object_vars($union);
+        }
+		
+        // 转换union表达式
+        if (is_string($union))
+		{
+            $options =  $union;
+        }
+		elseif (is_array($union))
+		{
+            if (isset($union[0]))
+			{
+                $this->options['union'] = array_merge($this->options['union'], $union);
+                return $this;
+            }
+			else
+			{
+                $options =  $union;
+            }
+        }
+		else
+		{
+            throw_exception(L('_DATA_TYPE_INVALID_'));
+        }
+        $this->options['union'][]  =   $options;
+        return $this;
+    }
+	
+    /**
+     * 查询缓存
+     * @access public
+     * @param mixed $key
+     * @param integer $expire
+     * @param string $type
+     * @return Model
+     */
+    public function cache($key = true, $expire = null, $type = '')
+	{
+        if (false !== $key)
+            $this->options['cache'] = array('key'=>$key, 'expire'=>$expire, 'type'=>$type);
+        return $this;
+    }
+	
+    /**
+     * 指定查询字段 支持字段排除
+     * @access public
+     * @param mixed $field
+     * @param boolean $except 是否排除
+     * @return Model
+     */
+    public function field($field, $except=false)
+	{
+		// 获取全部字段
+        if(true === $field)
+		{
+            $fields = $this->getDbFields();
+            $field = $fields ? $fields : '*';
+        }
+		// 字段排除
+		elseif ($except) 
+		{
+            if(is_string($field))
+			{
+                $field = explode(',',$field);
+            }
+			
+            $fields = $this->getDbFields();
+            $field  = $fields ? array_diff($fields, $field) : $field;
+        }
+        $this->options['field']   =   $field;
+        return $this;
+    }
+	
+    /**
      * 调用命名范围
      * @access public
      * @param mixed $scope 命名范围名称 支持多个 和直接定义
@@ -901,38 +1224,72 @@ class Model
     }
 	
     /**
-     * 获取数据表字段信息（不带字段类型）
+     * 指定查询条件 支持安全过滤
      * @access public
-     * @return array
+     * @param mixed $where 条件表达式
+     * @param mixed $parse 预处理参数
+     * @return Model
      */
-    public function getDbFields()
-	{
-		// 动态指定表名
-        if (isset($this->options['table']))
-		{
-            $fields = $this->db->getFields($this->options['table']);
-            return $fields ? array_keys($fields) : false;
+    public function where($where,$parse=null){
+        if(!is_null($parse) && is_string($where)) {
+            if(!is_array($parse)) {
+                $parse = func_get_args();
+                array_shift($parse);
+            }
+            $parse = array_map(array($this->db,'escapeString'),$parse);
+            $where =   vsprintf($where,$parse);
+        }elseif(is_object($where)){
+            $where  =   get_object_vars($where);
         }
-		
-        if ($this->fields)
-		{
-            $fields = $this->fields;
-            unset($fields['_autoinc'], $fields['_pk'], $fields['_type'], $fields['_version']);
-            return $fields;
+        if(is_string($where) && '' != $where){
+            $map    =   array();
+            $map['_string']   =   $where;
+            $where  =   $map;
+        }        
+        if(isset($this->options['where'])){
+            $this->options['where'] =   array_merge($this->options['where'],$where);
+        }else{
+            $this->options['where'] =   $where;
         }
-		
-        return false;
+        
+        return $this;
     }
-	
+
     /**
-     * 获取主键名称
+     * 指定查询数量
      * @access public
-     * @return string
+     * @param mixed $offset 起始位置
+     * @param mixed $length 查询数量
+     * @return Model
      */
-    public function getPk()
-	{
-        return isset($this->fields['_pk']) ? $this->fields['_pk'] : $this->pk;
+    public function limit($offset,$length=null){
+        $this->options['limit'] =   is_null($length)?$offset:$offset.','.$length;
+        return $this;
     }
+
+    /**
+     * 指定分页
+     * @access public
+     * @param mixed $page 页数
+     * @param mixed $listRows 每页数量
+     * @return Model
+     */
+    public function page($page,$listRows=null){
+        $this->options['page'] =   is_null($listRows)?$page:$page.','.$listRows;
+        return $this;
+    }
+
+    /**
+     * 查询注释
+     * @access public
+     * @param string $comment 注释
+     * @return Model
+     */
+    public function comment($comment){
+        $this->options['comment'] =   $comment;
+        return $this;
+    }
+//{{{ END return $this	--	链操作时使用 
 	
     /**
      * 对将要保存到数据库的数据进行处理
@@ -1202,6 +1559,28 @@ class Model
         return $data;
     }
 	
+    // 自动表单令牌验证
+    // TODO  ajax无刷新多次提交暂不能满足
+    public function autoCheckToken($data) {
+        if(C('TOKEN_ON')){
+            $name   = C('TOKEN_NAME');
+            if(!isset($data[$name]) || !isset($_SESSION[$name])) { // 令牌数据无效
+                return false;
+            }
+
+            // 令牌验证
+            list($key,$value)  =  explode('_',$data[$name]);
+            if($value && $_SESSION[$name][$key] === $value) { // 防止重复提交
+                unset($_SESSION[$name][$key]); // 验证完成销毁session
+                return true;
+            }
+            // 开启TOKEN重置
+            if(C('TOKEN_RESET')) unset($_SESSION[$name][$key]);
+            return false;
+        }
+        return true;
+    }
+	
     /**
      * 自动表单验证
      * @access protected
@@ -1317,5 +1696,151 @@ class Model
             }
         }
         return $data;
+    }
+	
+    /**
+     * 使用正则验证数据
+     * @access public
+     * @param string $value  要验证的数据
+     * @param string $rule 验证规则
+     * @return boolean
+     */
+    public function regex($value,$rule) {
+        $validate = array(
+            'require'   =>  '/.+/',
+            'email'     =>  '/^\w+([-+.]\w+)*@\w+([-.]\w+)*\.\w+([-.]\w+)*$/',
+            'url'       =>  '/^http(s?):\/\/(?:[A-za-z0-9-]+\.)+[A-za-z]{2,4}(?:[\/\?#][\/=\?%\-&~`@[\]\':+!\.#\w]*)?$/',
+            'currency'  =>  '/^\d+(\.\d+)?$/',
+            'number'    =>  '/^\d+$/',
+            'zip'       =>  '/^\d{6}$/',
+            'integer'   =>  '/^[-\+]?\d+$/',
+            'double'    =>  '/^[-\+]?\d+(\.\d+)?$/',
+            'english'   =>  '/^[A-Za-z]+$/',
+        );
+        // 检查是否有内置的正则表达式
+        if(isset($validate[strtolower($rule)]))
+            $rule       =   $validate[strtolower($rule)];
+        return preg_match($rule,$value)===1;
+    }
+	
+    /**
+     * 验证表单字段 支持批量验证
+     * 如果批量验证返回错误的数组信息
+     * @access protected
+     * @param array $data 创建数据
+     * @param array $val 验证因子
+     * @return boolean
+     */
+    protected function _validationField($data,$val) {
+        if(false === $this->_validationFieldItem($data,$val)){
+            if($this->patchValidate) {
+                $this->error[$val[0]]   =   $val[2];
+            }else{
+                $this->error            =   $val[2];
+                return false;
+            }
+        }
+        return ;
+    }
+	
+    /**
+     * 根据验证因子验证字段
+     * @access protected
+     * @param array $data 创建数据
+     * @param array $val 验证因子
+     * @return boolean
+     */
+    protected function _validationFieldItem($data,$val) {
+        switch(strtolower(trim($val[4]))) {
+            case 'function':// 使用函数进行验证
+            case 'callback':// 调用方法进行验证
+                $args = isset($val[6])?(array)$val[6]:array();
+                if(is_string($val[0]) && strpos($val[0], ','))
+                    $val[0] = explode(',', $val[0]);
+                if(is_array($val[0])){
+                    // 支持多个字段验证
+                    foreach($val[0] as $field)
+                        $_data[$field] = $data[$field];
+                    array_unshift($args, $_data);
+                }else{
+                    array_unshift($args, $data[$val[0]]);
+                }
+                if('function'==$val[4]) {
+                    return call_user_func_array($val[1], $args);
+                }else{
+                    return call_user_func_array(array(&$this, $val[1]), $args);
+                }
+            case 'confirm': // 验证两个字段是否相同
+                return $data[$val[0]] == $data[$val[1]];
+            case 'unique': // 验证某个值是否唯一
+                if(is_string($val[0]) && strpos($val[0],','))
+                    $val[0]  =  explode(',',$val[0]);
+                $map = array();
+                if(is_array($val[0])) {
+                    // 支持多个字段验证
+                    foreach ($val[0] as $field)
+                        $map[$field]   =  $data[$field];
+                }else{
+                    $map[$val[0]] = $data[$val[0]];
+                }
+                if(!empty($data[$this->getPk()])) { // 完善编辑的时候验证唯一
+                    $map[$this->getPk()] = array('neq',$data[$this->getPk()]);
+                }
+                if($this->where($map)->find())   return false;
+                return true;
+            default:  // 检查附加规则
+                return $this->check($data[$val[0]],$val[1],$val[4]);
+        }
+    }
+	
+    /**
+     * 验证数据 支持 in between equal length regex expire ip_allow ip_deny
+     * @access public
+     * @param string $value 验证数据
+     * @param mixed $rule 验证表达式
+     * @param string $type 验证方式 默认为正则验证
+     * @return boolean
+     */
+    public function check($value,$rule,$type='regex'){
+        $type   =   strtolower(trim($type));
+        switch($type) {
+            case 'in': // 验证是否在某个指定范围之内 逗号分隔字符串或者数组
+            case 'notin':
+                $range   = is_array($rule)? $rule : explode(',',$rule);
+                return $type == 'in' ? in_array($value ,$range) : !in_array($value ,$range);
+            case 'between': // 验证是否在某个范围
+            case 'notbetween': // 验证是否不在某个范围            
+                if (is_array($rule)){
+                    $min    =    $rule[0];
+                    $max    =    $rule[1];
+                }else{
+                    list($min,$max)   =  explode(',',$rule);
+                }
+                return $type == 'between' ? $value>=$min && $value<=$max : $value<$min || $value>$max;
+            case 'equal': // 验证是否等于某个值
+            case 'notequal': // 验证是否等于某个值            
+                return $type == 'equal' ? $value == $rule : $value != $rule;
+            case 'length': // 验证长度
+                $length  =  mb_strlen($value,'utf-8'); // 当前数据长度
+                if(strpos($rule,',')) { // 长度区间
+                    list($min,$max)   =  explode(',',$rule);
+                    return $length >= $min && $length <= $max;
+                }else{// 指定长度
+                    return $length == $rule;
+                }
+            case 'expire':
+                list($start,$end)   =  explode(',',$rule);
+                if(!is_numeric($start)) $start   =  strtotime($start);
+                if(!is_numeric($end)) $end   =  strtotime($end);
+                return NOW_TIME >= $start && NOW_TIME <= $end;
+            case 'ip_allow': // IP 操作许可验证
+                return in_array(get_client_ip(),explode(',',$rule));
+            case 'ip_deny': // IP 操作禁止验证
+                return !in_array(get_client_ip(),explode(',',$rule));
+            case 'regex':
+            default:    // 默认使用正则验证 可以使用验证类中定义的验证名称
+                // 检查附加规则
+                return $this->regex($value,$rule);
+        }
     }
 }

@@ -1,4 +1,21 @@
 <?php
+// +----------------------------------------------------------------------
+// | ThinkPHP [ WE CAN DO IT JUST THINK IT ]
+// +----------------------------------------------------------------------
+// | Copyright (c) 2006-2012 http://thinkphp.cn All rights reserved.
+// +----------------------------------------------------------------------
+// | Licensed ( http://www.apache.org/licenses/LICENSE-2.0 )
+// +----------------------------------------------------------------------
+// | Author: liu21st <liu21st@gmail.com>
+// +----------------------------------------------------------------------
+
+/**
+ * Think 基础函数库
+ * @category   Think
+ * @package  Common
+ * @author   liu21st <liu21st@gmail.com>
+ */
+
 /**
  * 记录和统计时间（微秒）和内存使用情况
  * 使用方法:
@@ -70,14 +87,10 @@ function N($key, $step=0,$save=false) {
  * @param integer $type 转换类型
  * @return string
  */
-function parse_name($name, $type=0)
-{
-    if ($type)
-	{
+function parse_name($name, $type=0) {
+    if ($type) {
         return ucfirst(preg_replace("/_([a-zA-Z])/e", "strtoupper('\\1')", $name));
-    }
-	else
-		{
+    } else {
         return strtolower(trim(preg_replace("/[A-Z]/", "_\\0", $name), "_"));
     }
 }
@@ -87,40 +100,29 @@ function parse_name($name, $type=0)
  * @param string $filename 文件地址
  * @return boolean
  */
-function require_cache($filename)
-{
+function require_cache($filename) {
     static $_importFiles = array();
-    
-	if (!isset($_importFiles[$filename]))
-	{
-        if (file_exists_case($filename))
-		{
+    if (!isset($_importFiles[$filename])) {
+        if (file_exists_case($filename)) {
             require $filename;
             $_importFiles[$filename] = true;
-        }
-		else
-		{
+        } else {
             $_importFiles[$filename] = false;
         }
     }
-	
     return $_importFiles[$filename];
 }
 
 /**
- * 批量加载文件
- * @param array $array 		文件数组
- * @param boolean $return 	加载成功后是否返回
+ * 批量导入文件 成功则返回
+ * @param array $array 文件数组
+ * @param boolean $return 加载成功后是否返回
  * @return boolean
  */
-function require_array($array, $return = false)
-{
-    foreach ($array as $file)
-	{
-        if (require_cache($file) && $return)
-			return true;
+function require_array($array,$return=false){
+    foreach ($array as $file){
+        if (require_cache($file) && $return) return true;
     }
-	
     if($return) return false;
 }
 
@@ -229,26 +231,18 @@ function vendor($class, $baseUrl = '', $ext='.php') {
  * @param string $classfile 对应类库
  * @return boolean
  */
-function alias_import($alias, $classfile = '')
-{
+function alias_import($alias, $classfile='') {
     static $_alias = array();
-    
-	if (is_string($alias))
-	{
-        if (isset($_alias[$alias]))
-		{
+    if (is_string($alias)) {
+        if(isset($_alias[$alias])) {
             return require_cache($_alias[$alias]);
-        }
-		elseif ('' !== $classfile)
-		{
+        }elseif ('' !== $classfile) {
             // 定义别名导入
             $_alias[$alias] = $classfile;
             return;
         }
-    }
-	elseif (is_array($alias))
-	{
-        $_alias = array_merge($_alias, $alias);
+    }elseif (is_array($alias)) {
+        $_alias   =  array_merge($_alias,$alias);
         return;
     }
     return false;
@@ -360,25 +354,20 @@ function R($url,$vars=array(),$layer='') {
  * @param string $value 语言值
  * @return mixed
  */
-function L($name = null, $value = null)
-{
+function L($name=null, $value=null) {
     static $_lang = array();
-    
-	// 空参数返回所有定义
+    // 空参数返回所有定义
     if (empty($name))
         return $_lang;
-	
     // 判断语言获取(或设置)
     // 若不存在,直接返回全大写$name
-    if (is_string($name))
-	{
+    if (is_string($name)) {
         $name = strtoupper($name);
         if (is_null($value))
             return isset($_lang[$name]) ? $_lang[$name] : $name;
-        $_lang[$name] = $value;
+        $_lang[$name] = $value; // 语言定义
         return;
     }
-	
     // 批量定义
     if (is_array($name))
         $_lang = array_merge($_lang, array_change_key_case($name, CASE_UPPER));
@@ -391,54 +380,41 @@ function L($name = null, $value = null)
  * @param mixed $value 配置值
  * @return mixed
  */
-function C($name = null, $value = null)
-{
+function C($name=null, $value=null) {
     static $_config = array();
-	
     // 无参数时获取所有
-    if (empty($name))
-	{
-        if (!empty($value) && $array = S('c_'.$value))
-		{
+    if (empty($name)) {
+        if(!empty($value) && $array = S('c_'.$value)) {
             $_config = array_merge($_config, array_change_key_case($array));
         }
         return $_config;
     }
-	
-    // 获取配置项或单条设置配置项
-    if (is_string($name))
-	{
-        if (!strpos($name, '.'))
-		{
+    // 优先执行设置获取或赋值
+    if (is_string($name)) {
+        if (!strpos($name, '.')) {
             $name = strtolower($name);
             if (is_null($value))
                 return isset($_config[$name]) ? $_config[$name] : null;
             $_config[$name] = $value;
             return;
         }
-		
         // 二维数组设置和获取支持
         $name = explode('.', $name);
-        $name[0] = strtolower($name[0]);
+        $name[0]   =  strtolower($name[0]);
         if (is_null($value))
             return isset($_config[$name[0]][$name[1]]) ? $_config[$name[0]][$name[1]] : null;
         $_config[$name[0]][$name[1]] = $value;
         return;
     }
-	
     // 批量设置
-    if (is_array($name))
-	{
+    if (is_array($name)){
         $_config = array_merge($_config, array_change_key_case($name));
-		// 缓存配置参数
-		if (!empty($value))
-		{
-            S('c_'.$value, $_config);
+        if(!empty($value)) {// 保存配置值
+            S('c_'.$value,$_config);
         }
         return;
     }
-	
-    return null;
+    return null; // 避免非法参数
 }
 
 /**
@@ -610,33 +586,22 @@ function array_define($array,$check=true) {
  * @param boolean $record 是否记录日志
  * @return void
  */
-function trace($value = '[think]', $label = '', $level = 'DEBUG', $record = false)
-{
-    static $_trace = array();
-	
-    // 获取trace信息
-	if('[think]' === $value)
-	{
+function trace($value='[think]',$label='',$level='DEBUG',$record=false) {
+    static $_trace =  array();
+    if('[think]' === $value){ // 获取trace信息
         return $_trace;
-    }
-	else
-	{
-        $info = ($label ? $label.':' : '').print_r($value, true);
-        if ('ERR' == $level && C('TRACE_EXCEPTION'))
-		{
-            throw_exception($info);		// link: common/functions.php
+    }else{
+        $info   =   ($label?$label.':':'').print_r($value,true);
+        if('ERR' == $level && C('TRACE_EXCEPTION')) {// 抛出异常
+            throw_exception($info);
         }
-		
-        $level = strtoupper($level);
-        if (!isset($_trace[$level]))
-		{
-            $_trace[$level] = array();
-        }
-        $_trace[$level][] = $info;
-		
-        if ((defined('IS_AJAX') && IS_AJAX) || !C('SHOW_PAGE_TRACE') || $record)		// link: Core/App.class.php  IS_AJAX
-		{
-            Log::record($info, $level, $record);
+        $level  =   strtoupper($level);
+        if(!isset($_trace[$level])) {
+                $_trace[$level] =   array();
+            }
+        $_trace[$level][]   = $info;
+        if((defined('IS_AJAX') && IS_AJAX) || !C('SHOW_PAGE_TRACE')  || $record) {
+            Log::record($info,$level,$record);
         }
     }
 }
